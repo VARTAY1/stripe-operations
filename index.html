@@ -96,7 +96,7 @@ button:disabled{opacity:.5;cursor:default}
 /* KPI band */
 .kpis{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);
   border-radius:13px;overflow:hidden;margin-bottom:16px;
-  grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .kpi{background:var(--surface);padding:14px 16px}
 .kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint);font-weight:600}
 .kpi .val{font-family:var(--display);font-size:23px;font-weight:700;letter-spacing:-.025em;
@@ -106,6 +106,11 @@ button:disabled{opacity:.5;cursor:default}
 
 /* module grid */
 .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start}
+.topgrid{display:grid;gap:14px;align-items:start;margin-bottom:14px;
+  grid-template-columns:minmax(280px,340px) minmax(0,1fr)}
+.topgrid > *{min-width:0}
+.grid > *{min-width:0}
+@media (max-width:780px){ .topgrid{grid-template-columns:1fr} }
 .mod{background:var(--surface);border:1px solid var(--line);border-radius:13px;min-width:0;overflow:hidden}
 .mod.wide{grid-column:1/-1}
 .mod header{display:flex;align-items:baseline;gap:9px;padding:13px 16px 11px;border-bottom:1px solid var(--line);
@@ -635,8 +640,8 @@ function panelFor(A){
       : `<p class="muted">No open checkout sessions.</p>`}
   </div>`));
 
-  /* recent payments */
-  M.push(mod("Recent payments", A.counts.hasMore ? "100+ in window" : A.counts.total+" in window",
+  /* recent payments — pinned to the top row */
+  const recentMod = mod("Recent payments", A.counts.hasMore ? "100+ in window" : A.counts.total+" in window",
     `<div class="body flush"><div class="scroll"><table>
     <thead><tr><th>When</th><th>State</th><th class="num">Amount</th><th>Customer</th></tr></thead><tbody>
       ${A.recent.length ? A.recent.map(c => `<tr><td class="muted">${esc(dt(c.created))}</td>
@@ -644,7 +649,7 @@ function panelFor(A){
         <td class="num">${esc(money(c.amount,c.currency))}</td>
         <td class="trunc">${esc(c.who)}${c.brand?`<div class="muted" style="font-size:11px">${esc(c.brand)}</div>`:""}</td></tr>`).join("")
         : `<tr><td colspan="4" class="muted">No payments in this window.</td></tr>`}
-    </tbody></table></div></div>`, "wide"));
+    </tbody></table></div></div>`);
 
   /* payouts + refunds side by side */
   M.push(mod("Payouts to bank", null, locked(A,"payouts","payouts") || `<div class="body flush"><div class="scroll">
@@ -663,8 +668,8 @@ function panelFor(A){
     </tbody></table>` : `<p class="muted" style="padding:13px 16px">No refunds.</p>`}
   </div></div>`));
 
-  /* account details */
-  M.push(mod("Account", null, `<div class="body"><dl class="kv">
+  /* account details — pinned to the top row */
+  const accountMod = mod("Account", null, `<div class="body"><dl class="kv">
     <dt>Opened</dt><dd>${esc(d8(A.created))}${A.created ? ` <span class="muted">· ${
       Math.floor((Date.now()/1000 - A.created)/86400)} days ago</span>` : ""}</dd>
     <dt>Account ID</dt><dd class="mono">${esc(A.id)}</dd>
@@ -677,7 +682,7 @@ function panelFor(A){
     <dt>Charges</dt><dd><span class="pill ${A.chargesEnabled?"s-ok":"s-bad"}">${A.chargesEnabled?"enabled":"off"}</span></dd>
     <dt>Payouts</dt><dd><span class="pill ${A.payoutsEnabled?"s-ok":"s-bad"}">${A.payoutsEnabled?"enabled":"off"}</span>
       <span class="muted">${esc(lbl(A.schedule))}${A.delayDays!=null?` +${A.delayDays}d`:""}</span></dd>
-  </dl></div>`));
+  </dl></div>`);
 
   /* activity */
   if (!A.err.events && A.events.length) M.push(mod("Recent activity", "last 30 days only",
@@ -686,7 +691,9 @@ function panelFor(A){
         <td class="mono">${esc(e.type)}</td></tr>`).join("")}
     </tbody></table></div></div>`));
 
-  return triage(A) + kpis(A) + `<div class="grid">${M.join("")}</div>`;
+  return triage(A) + kpis(A)
+       + `<div class="topgrid">${accountMod}${recentMod}</div>`
+       + `<div class="grid">${M.join("")}</div>`;
 }
 
 /* ---------- state ---------- */
