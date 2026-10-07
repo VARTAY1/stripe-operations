@@ -82,6 +82,16 @@ button:disabled{opacity:.5;cursor:default}
   border-color:var(--line);box-shadow:inset 0 2px 0 var(--accent)}
 .tab .x{color:var(--ink-faint);font-size:15px;line-height:1;padding:0 2px;border:none;background:none}
 .tab .x:hover{color:var(--bad)}
+.tab .r{display:inline-flex;align-items:center;color:var(--ink-faint);padding:0 1px}
+.tab .r:hover{color:var(--accent)}
+.tab .r svg{width:13px;height:13px;display:block}
+.tab.busy .r{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;font-size:12.5px;
+  color:var(--ink-faint)}
+.toolbar .spacer{flex:1}
+.toolbar button{padding:7px 13px;font-size:12.5px}
+.toolbar .fail{color:var(--bad)}
 
 /* triage */
 .triage{display:flex;flex-direction:column;gap:7px;margin-bottom:18px}
@@ -176,8 +186,9 @@ dl.kv dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 <div class="wrap">
   <h1>Stripe Operations</h1>
   <p class="lede">Everything a read-only key can tell you about an account: money, risk,
-     customers and timing. Keys go straight from this browser to Stripe — no server in
-     between, and nothing is stored.</p>
+     customers and timing. Keys go straight from this browser to Stripe — no server in between.
+     A key stays in this page's memory so you can refresh an account, and is gone the
+     moment you close the tab or press Clear all. Nothing is ever written to disk.</p>
 
   <form class="keybar" id="form" autocomplete="off">
     <input id="key" type="password" required autocomplete="off" autocorrect="off"
@@ -697,8 +708,35 @@ function panelFor(A){
 }
 
 /* ---------- state ---------- */
-const accounts = [];   // {A} or {error} — keys are never kept
+// {key, A, at} or {error}. The key stays in memory only, so Refresh can re-read
+// the account; it is never written to disk or browser storage, and closing the
+// tab or pressing Clear all discards it.
+const accounts = [];
 let active = 0;
+
+const REFRESH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>`;
+
+async function refreshAccount(i){
+  const row = accounts[i];
+  if (!row || !row.key || row.busy) return;
+  row.busy = true; row.failed = null; render();
+  try {
+    row.A = await load(row.key, row.A ? row.A.days : 30);
+    row.at = Date.now();
+  } catch(e){
+    row.failed = e.message || String(e);   // keep the previous reading on screen
+  } finally {
+    row.busy = false; render();
+  }
+}
+
+const ago = ms => {
+  const n = Math.round((Date.now() - ms)/1000);
+  if (n < 60) return "just now";
+  if (n < 3600) return Math.floor(n/60) + " min ago";
+  return new Date(ms).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
+};
 
 function render(){
   const tabs = $("#tabs"), panel = $("#panel");
@@ -708,17 +746,32 @@ function render(){
     return;
   }
   tabs.hidden = false;
-  tabs.innerHTML = accounts.map((a,i) => `<button class="tab" role="tab" data-i="${i}"
+  tabs.innerHTML = accounts.map((a,i) => `<button class="tab${a.busy?" busy":""}" role="tab" data-i="${i}"
     aria-selected="${i===active}">${esc(a.error ? "Unreadable" : a.A.name)}
     ${a.error ? "" : `<span class="pill ${a.A.mode==="LIVE"?"s-live":"s-test"}">${esc(a.A.mode)}</span>`}
+    ${a.error ? "" : `<span class="r" data-refresh="${i}" title="Refresh this account">${REFRESH_ICON}</span>`}
     <span class="x" data-close="${i}" title="Remove">×</span></button>`).join("");
   const cur = accounts[active];
-  panel.innerHTML = cur.error
-    ? `<section class="mod"><div class="errbox">${esc(cur.error)}</div></section>`
-    : panelFor(cur.A);
+  if (cur.error){
+    panel.innerHTML = `<section class="mod"><div class="errbox">${esc(cur.error)}</div></section>`;
+    return;
+  }
+  const bar = `<div class="toolbar">
+    <span>${cur.busy ? "Refreshing…" : "Updated " + esc(ago(cur.at))}</span>
+    ${cur.failed ? `<span class="fail">· refresh failed: ${esc(cur.failed)} (showing the last good reading)</span>` : ""}
+    <span class="spacer"></span>
+    <button type="button" data-refresh="${active}" ${cur.busy ? "disabled" : ""}>Refresh this account</button>
+  </div>`;
+  panel.innerHTML = bar + panelFor(cur.A);
 }
 
+document.addEventListener("click", ev => {
+  const r = ev.target.closest("[data-refresh]");
+  if (r){ ev.stopPropagation(); refreshAccount(Number(r.dataset.refresh)); }
+});
+
 $("#tabs").addEventListener("click", ev => {
+  if (ev.target.closest("[data-refresh]")) return;
   const close = ev.target.closest("[data-close]");
   if (close){
     ev.stopPropagation();
@@ -739,7 +792,7 @@ $("#form").addEventListener("submit", async ev => {
   btn.disabled = true; btn.textContent = "Reading…";
   try {
     const A = await load(key, days);
-    accounts.push({A});
+    accounts.push({key, A, at: Date.now()});
   } catch(e){
     accounts.push({error: e.message || String(e)});
   } finally {
